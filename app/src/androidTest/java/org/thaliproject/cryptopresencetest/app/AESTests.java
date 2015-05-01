@@ -1,47 +1,24 @@
 package org.thaliproject.cryptopresencetest.app;
 
 import javax.crypto.*;
-import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
-import java.security.NoSuchAlgorithmException;
-import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
-import java.util.concurrent.Callable;
 
+/**
+ * This was just some quick and dirty tests to give me a sense of how to
+ * use the AES APIs and what their rough perf looks like.
+ */
 public class AESTests extends BaseCryptoTest {
-    Cipher encryptCipher, decryptCipher;
-    int sizeOfEncryptedContent = md5HashSizeInBytes * 2;
-    byte[][] contentToEncrypt;
-    byte[][] encryptedContent;
-    public static final int aes128BlockSizeInBytes = 16;
-    byte[] iv = new byte[aes128BlockSizeInBytes];
-
-    KeyGenerator keyGenerator;
-    SecretKey aesKey;
-
-    public void setUp() throws NoSuchPaddingException, NoSuchAlgorithmException {
-        keyGenerator = KeyGenerator.getInstance("AES");
-        keyGenerator.init(128);
-    }
+    final int sizeOfEncryptedContent = hashSizeInBytes * 2;
 
     public void testAesCbcDecryptionTime() throws Exception {
         final int numberOfRuns = 1000;
-        runTest("AES+CBC", "AES/CBC/PKCS5Padding", new Callable<AlgorithmParameterSpec>() {
-            @Override
-            public AlgorithmParameterSpec call() throws Exception {
-                return new IvParameterSpec(iv);
-            }
-        }, numberOfRuns);
+        runTest("AES+CBC", CryptoUtilities.AesType.CBC, numberOfRuns);
     }
 
     public void testAesGcmDecryptionTime() throws Exception {
         final int numberOfRuns = 1000;
-        runTest("AES+GCM", "AES/GCM/NoPadding", new Callable<AlgorithmParameterSpec>() {
-            @Override
-            public AlgorithmParameterSpec call() throws Exception {
-                return new GCMParameterSpec(16 * Byte.SIZE, iv);
-            }
-        }, numberOfRuns);
+        runTest("AES+GCM", CryptoUtilities.AesType.GCM, numberOfRuns);
     }
 
     private byte[][] generateContentToEncrypt(int numberOfRuns, int sizeOfRawContent) {
@@ -58,7 +35,8 @@ public class AESTests extends BaseCryptoTest {
      * @param contentToEncrypt Content To be encrypted
      * @return encrypted content
      */
-    private byte[][] generateEncryptedContent(Cipher initedEncryptCipher, byte[][] contentToEncrypt)
+    private byte[][] generateEncryptedContent(Cipher initedEncryptCipher,
+                                              byte[][] contentToEncrypt)
             throws BadPaddingException, IllegalBlockSizeException {
         byte[][] encryptedContent = new byte[contentToEncrypt.length][];
         for(int i = 0; i < contentToEncrypt.length; ++i) {
@@ -67,30 +45,39 @@ public class AESTests extends BaseCryptoTest {
         return encryptedContent;
     }
 
-    private void runTest(String testName, final String getInstanceType,
-                         final Callable<AlgorithmParameterSpec> callable,
+    private void runTest(String testName, final CryptoUtilities.AesType aesType,
                                final int numberOfRuns) throws Exception {
-        TestCommand.runAndLogTest(testName + ": Test how long it takes to decrypt " +
-                numberOfRuns + " values", 100, new TestCommand() {
+        PerfTest.runAndLogTest(testName + ": Test how long it takes to decrypt " +
+                numberOfRuns + " values", 100, new PerfTest() {
+            byte[] iv = new byte[CryptoUtilities.aes128BlockSizeInBytes];
+            byte[][] contentToEncrypt, encryptedContent;
+            KeyGenerator keyGenerator;
+            SecretKey aesKey;
+
             @Override
-            public void setUpBeforeEachTest() throws Exception {
+            public void setUpBeforeEachPerfRun() throws Exception {
+                keyGenerator = KeyGenerator.getInstance("AES");
+                keyGenerator.init(128);
+
+                final Cipher encryptCipher = CryptoUtilities.createAesCipher(aesType);
+
                 aesKey = keyGenerator.generateKey();
 
                 secureRandom.nextBytes(iv);
 
-                encryptCipher = Cipher.getInstance(getInstanceType);
-                decryptCipher = Cipher.getInstance(getInstanceType);
+                encryptCipher.init(Cipher.ENCRYPT_MODE, aesKey,
+                        CryptoUtilities.getAlgorithmParameterSpec(aesType, iv));
 
-                encryptCipher.init(Cipher.ENCRYPT_MODE, aesKey, callable.call());
-
-                contentToEncrypt = generateContentToEncrypt(numberOfRuns, sizeOfEncryptedContent);
+                contentToEncrypt =
+                        generateContentToEncrypt(numberOfRuns, sizeOfEncryptedContent);
 
                 encryptedContent =
                         generateEncryptedContent(encryptCipher, contentToEncrypt);
             }
 
             @Override
-            void runTest() throws Exception {
+            void runPerfTest() throws Exception {
+                final Cipher decryptCipher = CryptoUtilities.createAesCipher(aesType);
                 decryptCipher.init(Cipher.DECRYPT_MODE, aesKey, new IvParameterSpec(iv));
                 for (int i = 0; i < contentToEncrypt.length; ++i) {
                     assertTrue(Arrays.equals(decryptCipher.doFinal(encryptedContent[i]), contentToEncrypt[i]));

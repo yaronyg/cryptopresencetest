@@ -2,36 +2,26 @@ package org.thaliproject.cryptopresencetest.app;
 
 import android.util.Log;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
 import java.math.BigInteger;
-import java.security.*;
 import java.util.Arrays;
 
-public abstract class TestCommand {
-    void runOnceBeforeAllTests() throws InvalidKeyException {
+public abstract class PerfTest {
+    void setUpBeforeEachPerfRun() throws Exception {
 
     }
 
-    void setUpBeforeEachTest() throws Exception {
+    abstract void runPerfTest() throws Exception;
 
-    }
-
-    abstract void runTest() throws Exception;
-
-    public static long[] runTests(int numberOfRepeats, TestCommand command) throws Exception {
-        if (numberOfRepeats <= 0) {
-            throw new IllegalArgumentException("numberOfRepeats must be > 0");
+    public static long[] runPerfTests(int numberOfRuns, PerfTest perfTest) throws Exception {
+        if (numberOfRuns <= 0) {
+            throw new IllegalArgumentException("numberOfRuns must be > 0");
         }
 
-        command.runOnceBeforeAllTests();
-
-        final long[] results = new long[numberOfRepeats];
-        for(int i = 0; i < numberOfRepeats; ++i) {
-            command.setUpBeforeEachTest();
+        final long[] results = new long[numberOfRuns];
+        for(int i = 0; i < numberOfRuns; ++i) {
+            perfTest.setUpBeforeEachPerfRun();
             final long startTime = System.currentTimeMillis();
-            command.runTest();
+            perfTest.runPerfTest();
             final long endTime = System.currentTimeMillis();
             results[i] = endTime - startTime;
         }
@@ -64,9 +54,9 @@ public abstract class TestCommand {
                 + sumOfRunTimes.toString();
     }
 
-    public static void runAndLogTest(String testDescription, int numberOfRepeats, TestCommand command)
+    public static void runAndLogTest(String testDescription, int numberOfRepeats, PerfTest command)
             throws Exception {
-        long[] results = runTests(numberOfRepeats, command);
+        long[] results = runPerfTests(numberOfRepeats, command);
         Log.e("CryptoTest", testDescription + " - " + " repeated " + numberOfRepeats + " times: "
                 + minMedianMax(results));
     }

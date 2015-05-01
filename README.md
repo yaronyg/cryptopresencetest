@@ -1,2 +1,3 @@
 # cryptopresencetest
-Just a scratch space to test out some ideas around crypto for presence
+
+This is a set of test code I'm using to work through different possible approaches to support discovery in a way that respects users rights. All the code is in the androidTest folder. Everything as written as tests that I wrapped in a trivial perf framework just to let me see how long things take. I wrote everything using Java and Bouncy Castle/Spongy Castle just because it let me test on actual phones and write the code reasonably quickly. But I expect our actual production code to be written in C using OpenSSL and probably Crypto++ so we can share code across our different mobile platforms.

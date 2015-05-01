@@ -1,7 +1,14 @@
 package org.thaliproject.cryptopresencetest.app;
 
+import org.spongycastle.crypto.Digest;
+import org.spongycastle.crypto.digests.SHA256Digest;
+import org.spongycastle.crypto.generators.HKDFBytesGenerator;
+import org.spongycastle.crypto.generators.KDFCounterBytesGenerator;
+import org.spongycastle.crypto.macs.HMac;
+import org.spongycastle.crypto.params.HKDFParameters;
+import org.spongycastle.crypto.params.KDFCounterParameters;
+
 import javax.crypto.*;
-import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.security.*;
@@ -12,69 +19,107 @@ import java.util.Arrays;
 public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
     final int addressBookSize = 10000;
     final int entriesInAnnouncement = 20;
+    final String ecName = "secp256k1";
+    final String macAlgorithm = "HMACSHA256";
+    final Digest bouncyDigest = new SHA256Digest();
+    final HMac bouncyHmac = new HMac(bouncyDigest);
 
-    final ECGenParameterSpec ecGenParameterSpec = new ECGenParameterSpec("secp256k1");
-    KeyPairGenerator keyPairGenerator;
-    KeyPair ephemeralKeyPair, deviceKeyPair;
-    byte[] timeStamp = Md5HashTests.generateTimeStampAsBytes();
+    final KeyPair ephemeralKeyPair, deviceKeyPair;
+    final Mac hmac;
+    final byte[] timeStamp = CryptoUtilities.generateTimeStampAsBytes();
 
     // Shared AES state
-    SecretKeySpec foreignKeyInAddressBook;
-    byte[] md5OfForeignDevicePublicKey = new byte[md5HashSizeInBytes];
-    byte[] hmacMd5OfForeignDeviceKeyAndTimeStamp;
-    byte[] unencryptedBeacon = new byte[md5HashSizeInBytes*2];
-    byte[] encryptedBeacon;
-    byte[] iv = new byte[AESTests.aes128BlockSizeInBytes];
-    Mac hmac5;
-    Cipher decryptCipher;
+    final byte[] iv = new byte[CryptoUtilities.aes128BlockSizeInBytes];
+    final SecretKeySpec foreignKeyInAddressBook;
+    final byte[] hashOfForeignDevicePublicKey = new byte[hashSizeInBytes];
+    final byte[] ivPlusTimeStamp;
+    final byte[] unencryptedBeacon = new byte[hashSizeInBytes *2];
 
+    public CompareSizeInvariantOptionsTest() throws NoSuchProviderException,
+            NoSuchAlgorithmException, InvalidAlgorithmParameterException,
+            InvalidKeyException {
+        super();
 
-    public void setUp() throws NoSuchProviderException, NoSuchAlgorithmException,
-            InvalidAlgorithmParameterException {
-        keyPairGenerator = KeyPairGenerator.getInstance("ECDH", "SC");
+        // Initializing to our default values
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("ECDH", "SC");
+        ECGenParameterSpec ecGenParameterSpec = new ECGenParameterSpec(ecName);
         keyPairGenerator.initialize(ecGenParameterSpec, secureRandom);
-        hmac5 = Mac.getInstance("HMacmd5");
+        hmac = Mac.getInstance(macAlgorithm);
+
+        // We use these keys for all scenarios but ECIES which needs different key types
+        ephemeralKeyPair = keyPairGenerator.generateKeyPair();
+        deviceKeyPair = keyPairGenerator.generateKeyPair();
+
+        // This code creates the unencrypted version of the beacon used everywhere but
+        // HMAC/HMAC
+        secureRandom.nextBytes(iv);
+
+        ivPlusTimeStamp = new byte[iv.length + timeStamp.length];
+        System.arraycopy(iv, 0, ivPlusTimeStamp, 0, iv.length);
+        System.arraycopy(timeStamp, 0, ivPlusTimeStamp, iv.length, timeStamp.length);
+
+        foreignKeyInAddressBook =
+                CryptoUtilities.generateHmacKeys(1, twoHundredFiftySixBitKeyInBytes)[0];
+        secureRandom.nextBytes(hashOfForeignDevicePublicKey);
+        byte[] hmacOfIvPlusTimeStamp =
+                CryptoUtilities.generate128BitHash(ivPlusTimeStamp,
+                        foreignKeyInAddressBook, hmac);
+
+        System.arraycopy(hashOfForeignDevicePublicKey, 0, unencryptedBeacon, 0,
+                hashOfForeignDevicePublicKey.length);
+
+        System.arraycopy(hmacOfIvPlusTimeStamp, 0, unencryptedBeacon,
+                hashOfForeignDevicePublicKey.length,
+                hmacOfIvPlusTimeStamp.length);
     }
 
     public void testHmacHmac() throws Exception {
-        TestCommand.runAndLogTest("Test hmac/hmac against " + entriesInAnnouncement +
-                        " announcements with " + addressBookSize + " entries in the address book", 100,
-                new TestCommand() {
+        PerfTest.runAndLogTest("Test hmac/hmac against " + entriesInAnnouncement +
+                        " announcements with " + addressBookSize +
+                        " entries in the address book", 10,
+                new PerfTest() {
                     SecretKeySpec[] addressBook =
-                            Md5HashTests.generateHmacKeys(addressBookSize, twoHundredFiftySixBitKeyInBytes);
-                    byte[][] flags = new byte[entriesInAnnouncement][md5HashSizeInBytes];
-                    byte[][] beacons = new byte[entriesInAnnouncement][md5HashSizeInBytes];
-                    Mac hmac5 = Mac.getInstance("HMACMD5");
+                            CryptoUtilities.generateHmacKeys(addressBookSize,
+                                    twoHundredFiftySixBitKeyInBytes);
+                    byte[][] flags = new byte[entriesInAnnouncement][hashSizeInBytes];
+                    byte[][] beacons = new byte[entriesInAnnouncement][hashSizeInBytes];
 
                     @Override
-                    void setUpBeforeEachTest() throws InvalidKeyException, NoSuchProviderException,
+                    void setUpBeforeEachPerfRun() throws InvalidKeyException,
+                            NoSuchProviderException,
                             NoSuchAlgorithmException {
-                        setFlags(flags, timeStamp, hmac5);
+                        createKeysAndSetFlags(flags, timeStamp, hmac);
 
                         for (int i = 0; i < entriesInAnnouncement - 1; ++i) {
                             secureRandom.nextBytes(beacons[i]);
                         }
 
                         beacons[entriesInAnnouncement - 1] =
-                                Md5HashTests.generateHmac(timeStamp, addressBook[addressBookSize - 1], hmac5);
-
+                                CryptoUtilities.generate128BitHash(
+                                        timeStamp,
+                                        addressBook[addressBookSize - 1],
+                                        hmac);
                     }
 
                     @Override
-                    void runTest() throws Exception {
+                    void runPerfTest() throws Exception {
                         byte[] sharedSecret =
-                                generateEcdhSharedSecret(deviceKeyPair.getPrivate(),
+                                generateEcdhSharedSecretWithKDF(deviceKeyPair.getPrivate(),
                                         ephemeralKeyPair.getPublic());
 
                         SecretKeySpec hmacForFlag = new SecretKeySpec(sharedSecret, "RAW");
 
                         for (int i = 0; i < entriesInAnnouncement; ++i) {
-                            if (Arrays.equals(flags[i], Md5HashTests.generateHmac(timeStamp, hmacForFlag,
-                                    hmac5))) {
+                            if (Arrays.equals(
+                                    flags[i],
+                                    CryptoUtilities.generate128BitHash(timeStamp, hmacForFlag,
+                                            hmac))) {
                                 byte[] matchingBeacon = beacons[i];
                                 for (SecretKeySpec addressBookKey : addressBook) {
-                                    if (Arrays.equals(matchingBeacon,
-                                            Md5HashTests.generateHmac(timeStamp, addressBookKey, hmac5))) {
+                                    if (Arrays.equals(
+                                            matchingBeacon,
+                                            CryptoUtilities.generate128BitHash(timeStamp,
+                                                    addressBookKey, hmac))) {
                                         assertTrue(true);
                                         return;
                                     }
@@ -87,41 +132,47 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
     }
 
     public void testHmacAesCbc() throws Exception {
-        TestCommand.runAndLogTest("Test hmac-aes-cbc against " + entriesInAnnouncement +
+        PerfTest.runAndLogTest("Test hmac-aes-cbc against " + entriesInAnnouncement +
                         " announcements ", 100,
-                new TestCommand() {
-                    byte[][] flags = new byte[entriesInAnnouncement][md5HashSizeInBytes];
+                new PerfTest() {
+                    byte[][] flags = new byte[entriesInAnnouncement][hashSizeInBytes];
+                    byte[] encryptedBeacon = new byte[hashSizeInBytes];
+                    Cipher decryptCipher;
 
                     @Override
-                    void setUpBeforeEachTest() throws InvalidKeyException, NoSuchProviderException,
-                            NoSuchAlgorithmException, NoSuchPaddingException, InvalidAlgorithmParameterException,
+                    void setUpBeforeEachPerfRun() throws InvalidKeyException,
+                            NoSuchProviderException,
+                            NoSuchAlgorithmException, NoSuchPaddingException,
+                            InvalidAlgorithmParameterException,
                             BadPaddingException, IllegalBlockSizeException {
-                        SecretKey ephemeralDeviceECDHKey = setFlags(flags, timeStamp, hmac5);
+                        createKeysAndSetFlags(flags, ivPlusTimeStamp, hmac);
 
-                        createAesState(ephemeralDeviceECDHKey, AesType.CBC);
+                        decryptCipher = CryptoUtilities.createAesCipher(CryptoUtilities.AesType.CBC);
+                        encryptedBeacon = encryptBeacon(CryptoUtilities.AesType.CBC, iv);
                     }
 
                     @Override
-                    void runTest() throws Exception {
-                        SecretKeySpec sharedEphemeralKey =
-                                getAes128SizedSecret(deviceKeyPair.getPrivate(), ephemeralKeyPair.getPublic());
+                    void runPerfTest() throws Exception {
+                        byte[] sharedSecret =
+                                generateEcdhSharedSecretWithKDF(deviceKeyPair.getPrivate(),
+                                        ephemeralKeyPair.getPublic());
+
+                        SecretKeySpec hmacForFlag = new SecretKeySpec(sharedSecret, "RAW");
+
+                        SecretKeySpec aes128Key = new SecretKeySpec(
+                                Arrays.copyOfRange(sharedSecret, 0,
+                                        CryptoUtilities.aes128BlockSizeInBytes),
+                                "AES");
 
                         for (int i = 0; i < entriesInAnnouncement; ++i) {
                             if (Arrays.equals(flags[i],
-                                    Md5HashTests.generateHmac(timeStamp, sharedEphemeralKey,
-                                    hmac5))) {
-                                decryptCipher.init(Cipher.DECRYPT_MODE, sharedEphemeralKey,
+                                    CryptoUtilities.generate128BitHash(ivPlusTimeStamp,
+                                            hmacForFlag,
+                                            hmac))) {
+                                decryptCipher.init(Cipher.DECRYPT_MODE, aes128Key,
                                         new IvParameterSpec(iv));
                                 byte[] decryptedContent = decryptCipher.doFinal(encryptedBeacon);
-                                assertTrue(Arrays.equals(decryptedContent, unencryptedBeacon));
-
-                                byte[] hmacInDecryptedContent =
-                                        Arrays.copyOfRange(decryptedContent,
-                                                md5OfForeignDevicePublicKey.length,
-                                                decryptedContent.length);
-                                byte[] generatedInternalHmac =
-                                        Md5HashTests.generateHmac(timeStamp, foreignKeyInAddressBook, hmac5);
-                                assertTrue(Arrays.equals(hmacInDecryptedContent, generatedInternalHmac));
+                                validateUnencryptedBeacon(decryptedContent);
                                 return;
                             }
                         }
@@ -131,68 +182,47 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
     }
 
     public void testHmacAesGcm() throws Exception {
-        TestCommand.runAndLogTest("Test aes-gcm against " + entriesInAnnouncement +
+        PerfTest.runAndLogTest("Test aes-gcm against " + entriesInAnnouncement +
                         " announcements ", 100,
-                new TestCommand() {
+                new PerfTest() {
                     byte[][] beacons = new byte[entriesInAnnouncement][];
+                    byte[] encryptedBeacon = new byte[hashSizeInBytes];
+                    Cipher decryptCipher;
 
                     @Override
-                    void setUpBeforeEachTest() throws InvalidKeyException, NoSuchProviderException,
-                            NoSuchAlgorithmException, NoSuchPaddingException, InvalidAlgorithmParameterException,
+                    void setUpBeforeEachPerfRun() throws InvalidKeyException,
+                            NoSuchProviderException,
+                            NoSuchAlgorithmException, NoSuchPaddingException,
+                            InvalidAlgorithmParameterException,
                             BadPaddingException, IllegalBlockSizeException {
-                        SecretKey aes128Key = createEphemeralSecretKey();
-
-                        createAesState(aes128Key, AesType.GCM);
-
-                        decryptCipher.init(Cipher.DECRYPT_MODE, aes128Key, new IvParameterSpec(iv));
-                        byte[] foo = decryptCipher.doFinal(encryptedBeacon);
-                        assertTrue(Arrays.equals(foo, unencryptedBeacon));
-
+                        decryptCipher = CryptoUtilities.createAesCipher(CryptoUtilities.AesType.GCM);
+                        encryptedBeacon = encryptBeacon(CryptoUtilities.AesType.GCM, iv);
 
                         KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
                         keyGenerator.init(128);
 
-                        for(int i = 0; i < beacons.length - 1; ++i) {
-                            Cipher encryptCipher = Cipher.getInstance("AES/GCM/NoPadding");
-
-                            encryptCipher.init(Cipher.ENCRYPT_MODE, keyGenerator.generateKey(),
-                                    new GCMParameterSpec(16 * Byte.SIZE, iv));
-
-                            System.arraycopy(md5OfForeignDevicePublicKey, 0, unencryptedBeacon, 0,
-                                    md5OfForeignDevicePublicKey.length);
-
-                            System.arraycopy(hmacMd5OfForeignDeviceKeyAndTimeStamp, 0, unencryptedBeacon,
-                                    md5OfForeignDevicePublicKey.length,
-                                    hmacMd5OfForeignDeviceKeyAndTimeStamp.length);
-
-                            beacons[i] = encryptCipher.doFinal(unencryptedBeacon);
+                        for (int i = 0; i < beacons.length - 1; ++i) {
+                            beacons[i] = encryptBeacon(keyGenerator.generateKey(),
+                                    CryptoUtilities.AesType.GCM, iv);
                         }
 
                         beacons[beacons.length - 1] = encryptedBeacon;
                     }
 
                     @Override
-                    void runTest() throws Exception {
+                    void runPerfTest() throws Exception {
                         SecretKeySpec sharedEphemeralKey =
                                 getAes128SizedSecret(deviceKeyPair.getPrivate(),
                                         ephemeralKeyPair.getPublic());
-                        decryptCipher.init(Cipher.DECRYPT_MODE, sharedEphemeralKey,
-                                new IvParameterSpec(iv));
 
                         for (int i = 0; i < entriesInAnnouncement; ++i) {
                             try {
+                                decryptCipher.init(Cipher.DECRYPT_MODE, sharedEphemeralKey,
+                                        new IvParameterSpec(iv));
                                 byte[] decryptedContent = decryptCipher.doFinal(beacons[i]);
-                                assertTrue(Arrays.equals(decryptedContent, unencryptedBeacon));
-
-                                byte[] hmacInDecryptedContent =
-                                        Arrays.copyOfRange(decryptedContent,
-                                                md5OfForeignDevicePublicKey.length,
-                                                decryptedContent.length);
-                                byte[] generatedInternalHmac =
-                                        Md5HashTests.generateHmac(timeStamp, foreignKeyInAddressBook, hmac5);
-                                assertTrue(Arrays.equals(hmacInDecryptedContent, generatedInternalHmac));
+                                validateUnencryptedBeacon(decryptedContent);
                                 return;
-                            } catch(AEADBadTagException e) {
+                            } catch (AEADBadTagException e) {
                                 // Try next entry
                             }
                         }
@@ -201,93 +231,128 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
                 });
     }
 
+    public void testEcies() throws Exception {
+        // ECIES uses a different key so we need our own key generators
+        final KeyPairGenerator eciesKeyPairGenerator =
+                KeyPairGenerator.getInstance("EC", "SC");
+        eciesKeyPairGenerator.initialize(256, secureRandom);
+        final Cipher cipher = Cipher.getInstance("ECIESwithAES-CBC");
+        final KeyPair deviceKey = eciesKeyPairGenerator.generateKeyPair();
+
+        PerfTest.runAndLogTest("Test ECIES against " + entriesInAnnouncement +
+                " announcements ", 1, new PerfTest() {
+            byte[][] beacons = new byte[entriesInAnnouncement][];
+
+            @Override
+            void setUpBeforeEachPerfRun() throws InvalidAlgorithmParameterException,
+                    InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+
+                for (int i = 0; i < entriesInAnnouncement - 1; ++i) {
+                    KeyPair bogusDeviceKeyPair = eciesKeyPairGenerator.generateKeyPair();
+                    cipher.init(Cipher.ENCRYPT_MODE,
+                            bogusDeviceKeyPair.getPublic(), secureRandom);
+                    beacons[i] = cipher.doFinal(unencryptedBeacon);
+                }
+
+                cipher.init(Cipher.ENCRYPT_MODE, deviceKey.getPublic(), secureRandom);
+                beacons[beacons.length - 1] = cipher.doFinal(unencryptedBeacon);
+            }
+
+            @Override
+            void runPerfTest() throws Exception {
+                for (int i = 0; i < entriesInAnnouncement; ++i) {
+                    try {
+                        cipher.init(Cipher.DECRYPT_MODE, deviceKey.getPrivate(), secureRandom);
+                        byte[] decryptedBeacon = cipher.doFinal(beacons[i]);
+                        validateUnencryptedBeacon(decryptedBeacon);
+                        return;
+                    } catch (BadPaddingException e) {
+                        // Ignore, failed match
+                    }
+                }
+                fail();
+            }
+        });
+    }
+
+    private void validateUnencryptedBeacon(byte[] decryptedContent) throws
+            InvalidKeyException {
+        assertTrue(Arrays.equals(decryptedContent, unencryptedBeacon));
+
+        byte[] hmacInDecryptedContent =
+                Arrays.copyOfRange(decryptedContent,
+                        hashOfForeignDevicePublicKey.length,
+                        decryptedContent.length);
+        byte[] generatedInternalHmac =
+                CryptoUtilities.generate128BitHash(ivPlusTimeStamp,
+                        foreignKeyInAddressBook, hmac);
+        assertTrue(Arrays.equals(hmacInDecryptedContent, generatedInternalHmac));
+    }
 
     private SecretKeySpec getAes128SizedSecret(PrivateKey privateKey, PublicKey publicKey)
             throws NoSuchAlgorithmException, NoSuchProviderException, InvalidKeyException {
         return new SecretKeySpec(
                 Arrays.copyOfRange(
-                        generateEcdhSharedSecret(privateKey, publicKey),
-                        0, AESTests.aes128BlockSizeInBytes), "AES");
+                        generateEcdhSharedSecretWithKDF(privateKey, publicKey),
+                        0, CryptoUtilities.aes128BlockSizeInBytes), "AES");
     }
 
-    private enum AesType { CBC, GCM }
+    private byte[] encryptBeacon(CryptoUtilities.AesType aesType, byte[] iv)
+            throws InvalidKeyException,
+            NoSuchAlgorithmException, NoSuchPaddingException,
+            InvalidAlgorithmParameterException,
+            IllegalBlockSizeException, BadPaddingException, NoSuchProviderException {
+        SecretKey aes128Key = getAes128SizedSecret(ephemeralKeyPair.getPrivate(),
+                deviceKeyPair.getPublic());
 
-    private void createAesState(SecretKey ephemeralDeviceECDHKey,
-                                AesType aesType) throws InvalidKeyException,
-            NoSuchAlgorithmException, NoSuchPaddingException, InvalidAlgorithmParameterException,
-            IllegalBlockSizeException, BadPaddingException {
-        secureRandom.nextBytes(iv);
+        return encryptBeacon(aes128Key, aesType, iv);
+    }
 
-        String cipherInstance;
-        AlgorithmParameterSpec algorithmParameterSpec;
+    private byte[] encryptBeacon(SecretKey aes128Key, CryptoUtilities.AesType aesType, byte[] iv)
+            throws NoSuchAlgorithmException, NoSuchPaddingException,
+            InvalidAlgorithmParameterException, InvalidKeyException, BadPaddingException,
+            IllegalBlockSizeException {
+        AlgorithmParameterSpec algorithmParameterSpec =
+                CryptoUtilities.getAlgorithmParameterSpec(aesType, iv);
 
-        switch(aesType) {
-            case CBC:
-                cipherInstance = "AES/CBC/PKCS5Padding";
-                algorithmParameterSpec = new IvParameterSpec(iv);
-                break;
-            case GCM:
-                cipherInstance = "AES/GCM/NoPadding";
-                algorithmParameterSpec = new GCMParameterSpec(16 * Byte.SIZE, iv);
-                break;
-            default:
-                fail();
-                return;
-        }
-
-
-        foreignKeyInAddressBook =
-                Md5HashTests.generateHmacKeys(1, twoHundredFiftySixBitKeyInBytes)[0];
-
-        secureRandom.nextBytes(md5OfForeignDevicePublicKey);
-
-        hmacMd5OfForeignDeviceKeyAndTimeStamp =
-                Md5HashTests.generateHmac(timeStamp, foreignKeyInAddressBook, hmac5);
-
-        Cipher encryptCipher = Cipher.getInstance(cipherInstance);
-        decryptCipher = Cipher.getInstance(cipherInstance);
-
-        encryptCipher.init(Cipher.ENCRYPT_MODE, ephemeralDeviceECDHKey,
+        Cipher encryptCipher = CryptoUtilities.createAesCipher(aesType);
+        encryptCipher.init(Cipher.ENCRYPT_MODE, aes128Key,
                 algorithmParameterSpec);
 
-        System.arraycopy(md5OfForeignDevicePublicKey, 0, unencryptedBeacon, 0,
-                md5OfForeignDevicePublicKey.length);
-
-        System.arraycopy(hmacMd5OfForeignDeviceKeyAndTimeStamp, 0, unencryptedBeacon,
-                md5OfForeignDevicePublicKey.length,
-                hmacMd5OfForeignDeviceKeyAndTimeStamp.length);
-
-        encryptedBeacon = encryptCipher.doFinal(unencryptedBeacon);
+        return encryptCipher.doFinal(unencryptedBeacon);
     }
 
-    private SecretKeySpec createEphemeralSecretKey() throws NoSuchAlgorithmException, NoSuchProviderException,
-            InvalidKeyException {
-        ephemeralKeyPair = keyPairGenerator.generateKeyPair();
-        deviceKeyPair = keyPairGenerator.generateKeyPair();
-
-        return getAes128SizedSecret(ephemeralKeyPair.getPrivate(), deviceKeyPair.getPublic());
-    }
-
-    private byte[] generateEcdhSharedSecret(PrivateKey privateKey, PublicKey publicKey)
+    private byte[] generateEcdhSharedSecretWithKDF(PrivateKey privateKey, PublicKey publicKey)
             throws NoSuchAlgorithmException,
             NoSuchProviderException, InvalidKeyException {
         KeyAgreement ephemeralKeyAgreement = KeyAgreement.getInstance("ECDH", "SC");
         ephemeralKeyAgreement.init(privateKey);
         ephemeralKeyAgreement.doPhase(publicKey, true);
-        return ephemeralKeyAgreement.generateSecret();
+        byte[] rawSecret = ephemeralKeyAgreement.generateSecret();
+
+        HKDFBytesGenerator hkdfBytesGenerator = new HKDFBytesGenerator(bouncyDigest);
+        HKDFParameters hkdfParameters = new HKDFParameters(rawSecret, iv, null);
+        hkdfBytesGenerator.init(hkdfParameters);
+        byte[] kdfValue = new byte[rawSecret.length];
+        hkdfBytesGenerator.generateBytes(kdfValue, 0, kdfValue.length);
+        return kdfValue;
     }
 
-    private SecretKeySpec setFlags(byte[][] flags, byte[] timeStamp, Mac hmac5) throws NoSuchAlgorithmException,
+    private SecretKeySpec createKeysAndSetFlags(byte[][] flags, byte[] valueToHash, Mac hmac5)
+            throws NoSuchAlgorithmException,
             NoSuchProviderException,
             InvalidKeyException {
         for(int i = 0; i < entriesInAnnouncement - 1; ++i) {
             secureRandom.nextBytes(flags[i]);
         }
 
-        SecretKeySpec hmacEphemeralKey = createEphemeralSecretKey();
+        byte[] sharedSecret = generateEcdhSharedSecretWithKDF(ephemeralKeyPair.getPrivate(),
+                deviceKeyPair.getPublic());
+        SecretKeySpec hmacEphemeralKey =
+                new SecretKeySpec(sharedSecret, "RAW");
 
         flags[entriesInAnnouncement - 1] =
-                Md5HashTests.generateHmac(timeStamp, hmacEphemeralKey, hmac5);
+                CryptoUtilities.generate128BitHash(valueToHash, hmacEphemeralKey, hmac5);
 
         return hmacEphemeralKey;
     }
