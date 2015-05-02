@@ -9,10 +9,10 @@ import java.security.spec.ECGenParameterSpec;
  * for reference incase I need it in the future.
  */
 public class ECDSATests extends BaseCryptoTest {
-    final ECGenParameterSpec ecGenSpec = new ECGenParameterSpec("prime256v1");
-    final KeyPairGenerator keyPairGeneratorEcdsa;
-    final KeyPair keyPair;
-    final Signature ecdsaSign;
+    private final ECGenParameterSpec ecGenSpec = new ECGenParameterSpec("prime256v1");
+    private final KeyPairGenerator keyPairGeneratorEcdsa;
+    private final KeyPair keyPair;
+    private final Signature ecdsaSign;
 
     public ECDSATests() throws NoSuchProviderException, NoSuchAlgorithmException,
             InvalidAlgorithmParameterException {

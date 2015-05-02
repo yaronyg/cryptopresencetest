@@ -9,7 +9,7 @@ import java.util.Arrays;
  * use the AES APIs and what their rough perf looks like.
  */
 public class AESTests extends BaseCryptoTest {
-    final int sizeOfEncryptedContent = hashSizeInBytes * 2;
+    private final int sizeOfEncryptedContent = hashSizeInBytes * 2;
 
     public void testAesCbcDecryptionTime() throws Exception {
         final int numberOfRuns = 1000;
@@ -49,7 +49,7 @@ public class AESTests extends BaseCryptoTest {
                                final int numberOfRuns) throws Exception {
         PerfTest.runAndLogTest(testName + ": Test how long it takes to decrypt " +
                 numberOfRuns + " values", 100, new PerfTest() {
-            byte[] iv = new byte[CryptoUtilities.aes128BlockSizeInBytes];
+            final byte[] iv = new byte[CryptoUtilities.aes128BlockSizeInBytes];
             byte[][] contentToEncrypt, encryptedContent;
             KeyGenerator keyGenerator;
             SecretKey aesKey;

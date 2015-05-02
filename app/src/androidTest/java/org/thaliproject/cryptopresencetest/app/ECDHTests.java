@@ -13,10 +13,10 @@ public class ECDHTests extends BaseCryptoTest {
         keyPairGeneratorStaticDH.initialize(ecGenSpecForStaticDH, secureRandom);
 
         PerfTest.runAndLogTest("Generate static-static ECDH key", 1000, new PerfTest() {
-            KeyPair[] ephemeralKeyPair = new KeyPair[numberOfRunsPerTest];
+            final KeyPair[] ephemeralKeyPair = new KeyPair[numberOfRunsPerTest];
 
-            KeyPair[] yKeyPair = new KeyPair[numberOfRunsPerTest];
-            KeyAgreement[] yKeyAgree = new KeyAgreement[numberOfRunsPerTest];
+            final KeyPair[] yKeyPair = new KeyPair[numberOfRunsPerTest];
+            final KeyAgreement[] yKeyAgree = new KeyAgreement[numberOfRunsPerTest];
 
             @Override
             void setUpBeforeEachPerfRun() throws NoSuchProviderException, NoSuchAlgorithmException,

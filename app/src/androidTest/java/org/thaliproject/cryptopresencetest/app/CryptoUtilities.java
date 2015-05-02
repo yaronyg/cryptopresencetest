@@ -14,8 +14,8 @@ import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
 
 public class CryptoUtilities {
-    static final int sizeOfTimeStampInBytes = 8;
-    static final int oneHundredTwentyEightBitsInBytes = 16;
+    private static final int sizeOfTimeStampInBytes = 8;
+    private static final int oneHundredTwentyEightBitsInBytes = 16;
 
     public enum AesType { CBC, GCM }
 

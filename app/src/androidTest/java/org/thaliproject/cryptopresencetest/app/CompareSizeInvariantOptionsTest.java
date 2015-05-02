@@ -3,10 +3,8 @@ package org.thaliproject.cryptopresencetest.app;
 import org.spongycastle.crypto.Digest;
 import org.spongycastle.crypto.digests.SHA256Digest;
 import org.spongycastle.crypto.generators.HKDFBytesGenerator;
-import org.spongycastle.crypto.generators.KDFCounterBytesGenerator;
 import org.spongycastle.crypto.macs.HMac;
 import org.spongycastle.crypto.params.HKDFParameters;
-import org.spongycastle.crypto.params.KDFCounterParameters;
 
 import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
@@ -17,23 +15,23 @@ import java.security.spec.ECGenParameterSpec;
 import java.util.Arrays;
 
 public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
-    final int addressBookSize = 10000;
-    final int entriesInAnnouncement = 20;
-    final String ecName = "secp256k1";
-    final String macAlgorithm = "HMACSHA256";
-    final Digest bouncyDigest = new SHA256Digest();
-    final HMac bouncyHmac = new HMac(bouncyDigest);
+    private final int addressBookSize = 10000;
+    private final int entriesInAnnouncement = 20;
+    private final String ecName = "secp256k1";
+    private final String macAlgorithm = "HMACSHA256";
+    private final Digest bouncyDigest = new SHA256Digest();
 
-    final KeyPair ephemeralKeyPair, deviceKeyPair;
-    final Mac hmac;
-    final byte[] timeStamp = CryptoUtilities.generateTimeStampAsBytes();
+    private final KeyPair ephemeralKeyPair;
+    private final KeyPair deviceKeyPair;
+    private final Mac hmac;
+    private final byte[] timeStamp = CryptoUtilities.generateTimeStampAsBytes();
 
     // Shared AES state
-    final byte[] iv = new byte[CryptoUtilities.aes128BlockSizeInBytes];
-    final SecretKeySpec foreignKeyInAddressBook;
-    final byte[] hashOfForeignDevicePublicKey = new byte[hashSizeInBytes];
-    final byte[] ivPlusTimeStamp;
-    final byte[] unencryptedBeacon = new byte[hashSizeInBytes *2];
+    private final byte[] iv = new byte[CryptoUtilities.aes128BlockSizeInBytes];
+    private final SecretKeySpec foreignKeyInAddressBook;
+    private final byte[] hashOfForeignDevicePublicKey = new byte[hashSizeInBytes];
+    private final byte[] ivPlusTimeStamp;
+    private final byte[] unencryptedBeacon = new byte[hashSizeInBytes *2];
 
     public CompareSizeInvariantOptionsTest() throws NoSuchProviderException,
             NoSuchAlgorithmException, InvalidAlgorithmParameterException,
@@ -78,11 +76,11 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
                         " announcements with " + addressBookSize +
                         " entries in the address book", 10,
                 new PerfTest() {
-                    SecretKeySpec[] addressBook =
+                    final SecretKeySpec[] addressBook =
                             CryptoUtilities.generateHmacKeys(addressBookSize,
                                     twoHundredFiftySixBitKeyInBytes);
-                    byte[][] flags = new byte[entriesInAnnouncement][hashSizeInBytes];
-                    byte[][] beacons = new byte[entriesInAnnouncement][hashSizeInBytes];
+                    final byte[][] flags = new byte[entriesInAnnouncement][hashSizeInBytes];
+                    final byte[][] beacons = new byte[entriesInAnnouncement][hashSizeInBytes];
 
                     @Override
                     void setUpBeforeEachPerfRun() throws InvalidKeyException,
@@ -135,7 +133,7 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
         PerfTest.runAndLogTest("Test hmac-aes-cbc against " + entriesInAnnouncement +
                         " announcements ", 100,
                 new PerfTest() {
-                    byte[][] flags = new byte[entriesInAnnouncement][hashSizeInBytes];
+                    final byte[][] flags = new byte[entriesInAnnouncement][hashSizeInBytes];
                     byte[] encryptedBeacon = new byte[hashSizeInBytes];
                     Cipher decryptCipher;
 
@@ -185,7 +183,7 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
         PerfTest.runAndLogTest("Test aes-gcm against " + entriesInAnnouncement +
                         " announcements ", 100,
                 new PerfTest() {
-                    byte[][] beacons = new byte[entriesInAnnouncement][];
+                    final byte[][] beacons = new byte[entriesInAnnouncement][];
                     byte[] encryptedBeacon = new byte[hashSizeInBytes];
                     Cipher decryptCipher;
 
@@ -195,7 +193,8 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
                             NoSuchAlgorithmException, NoSuchPaddingException,
                             InvalidAlgorithmParameterException,
                             BadPaddingException, IllegalBlockSizeException {
-                        decryptCipher = CryptoUtilities.createAesCipher(CryptoUtilities.AesType.GCM);
+                        decryptCipher =
+                                CryptoUtilities.createAesCipher(CryptoUtilities.AesType.GCM);
                         encryptedBeacon = encryptBeacon(CryptoUtilities.AesType.GCM, iv);
 
                         KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
@@ -241,7 +240,7 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
 
         PerfTest.runAndLogTest("Test ECIES against " + entriesInAnnouncement +
                 " announcements ", 1, new PerfTest() {
-            byte[][] beacons = new byte[entriesInAnnouncement][];
+            final byte[][] beacons = new byte[entriesInAnnouncement][];
 
             @Override
             void setUpBeforeEachPerfRun() throws InvalidAlgorithmParameterException,
@@ -338,7 +337,7 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
         return kdfValue;
     }
 
-    private SecretKeySpec createKeysAndSetFlags(byte[][] flags, byte[] valueToHash, Mac hmac5)
+    private void createKeysAndSetFlags(byte[][] flags, byte[] valueToHash, Mac hmac5)
             throws NoSuchAlgorithmException,
             NoSuchProviderException,
             InvalidKeyException {
@@ -353,8 +352,6 @@ public class CompareSizeInvariantOptionsTest extends BaseCryptoTest {
 
         flags[entriesInAnnouncement - 1] =
                 CryptoUtilities.generate128BitHash(valueToHash, hmacEphemeralKey, hmac5);
-
-        return hmacEphemeralKey;
     }
 
 }

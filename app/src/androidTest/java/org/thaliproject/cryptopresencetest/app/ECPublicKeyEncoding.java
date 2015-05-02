@@ -7,7 +7,7 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 
 public class ECPublicKeyEncoding extends BaseCryptoTest {
-    static final String ecName = "secp256k1";
+    private static final String ecName = "secp256k1";
 
     public void testEncodingAndDecodingECPublicECKey() throws NoSuchProviderException,
             NoSuchAlgorithmException, InvalidAlgorithmParameterException,

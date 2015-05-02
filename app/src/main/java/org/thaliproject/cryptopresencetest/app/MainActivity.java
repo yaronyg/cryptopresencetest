@@ -1,27 +1,9 @@
 package org.thaliproject.cryptopresencetest.app;
 
-import android.support.v7.app.ActionBarActivity;
 import android.os.Bundle;
-import android.util.Log;
+import android.support.v7.app.ActionBarActivity;
 import android.view.Menu;
 import android.view.MenuItem;
-import org.spongycastle.crypto.engines.IESEngine;
-import org.spongycastle.jcajce.provider.digest.Tiger;
-import org.spongycastle.jce.ECNamedCurveTable;
-import org.spongycastle.jce.spec.ECNamedCurveParameterSpec;
-
-import javax.crypto.KeyAgreement;
-import javax.crypto.Mac;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
-import java.math.BigInteger;
-import java.nio.ByteBuffer;
-import java.security.*;
-import java.security.interfaces.ECPrivateKey;
-import java.security.interfaces.ECPublicKey;
-import java.security.spec.ECGenParameterSpec;
-import java.security.spec.ECParameterSpec;
-import java.util.Arrays;
 
 
 public class MainActivity extends ActionBarActivity {

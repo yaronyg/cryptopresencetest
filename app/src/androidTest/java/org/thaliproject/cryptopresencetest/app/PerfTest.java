@@ -5,14 +5,14 @@ import android.util.Log;
 import java.math.BigInteger;
 import java.util.Arrays;
 
-public abstract class PerfTest {
+abstract class PerfTest {
     void setUpBeforeEachPerfRun() throws Exception {
 
     }
 
     abstract void runPerfTest() throws Exception;
 
-    public static long[] runPerfTests(int numberOfRuns, PerfTest perfTest) throws Exception {
+    private static long[] runPerfTests(int numberOfRuns, PerfTest perfTest) throws Exception {
         if (numberOfRuns <= 0) {
             throw new IllegalArgumentException("numberOfRuns must be > 0");
         }
@@ -29,7 +29,7 @@ public abstract class PerfTest {
         return results;
     }
 
-    public static String minMedianMax(long[] results) {
+    private static String minMedianMax(long[] results) {
         long min, max;
         double median;
 

@@ -6,8 +6,8 @@ import java.security.*;
 import java.util.HashSet;
 
 public class HashAndHmacTests extends BaseCryptoTest {
-    final Mac hmac;
-    final String macAlgorithm = "HMACSHA256";
+    private final Mac hmac;
+    private final String macAlgorithm = "HMACSHA256";
 
     public HashAndHmacTests() throws NoSuchAlgorithmException {
         super();
@@ -20,7 +20,7 @@ public class HashAndHmacTests extends BaseCryptoTest {
         PerfTest.runAndLogTest("Generate " + keysToGenerate + " " + macAlgorithm +
                 " Values using different keys", 100, new PerfTest() {
             SecretKeySpec[] keys;
-            byte[] timeStampAsBytes = CryptoUtilities.generateTimeStampAsBytes();
+            final byte[] timeStampAsBytes = CryptoUtilities.generateTimeStampAsBytes();
 
             @Override
             void setUpBeforeEachPerfRun() {
@@ -43,11 +43,11 @@ public class HashAndHmacTests extends BaseCryptoTest {
         PerfTest.runAndLogTest("Check " + numberOfHashesToCheck + " hashes using " +
                 macAlgorithm + " against " +
                 keysInAddressBook + " keys, all comparisons fail", 100, new PerfTest() {
-            SecretKeySpec[] addressBook =
+            final SecretKeySpec[] addressBook =
                     CryptoUtilities.generateHmacKeys(keysInAddressBook,
                             twoHundredFiftySixBitKeyInBytes);
-            HashSet<byte[]> hashesToCheck = new HashSet<>(numberOfHashesToCheck);
-            byte[] timeStampAsBytes = CryptoUtilities.generateTimeStampAsBytes();
+            final HashSet<byte[]> hashesToCheck = new HashSet<>(numberOfHashesToCheck);
+            final byte[] timeStampAsBytes = CryptoUtilities.generateTimeStampAsBytes();
 
             @Override
             void setUpBeforeEachPerfRun() {
