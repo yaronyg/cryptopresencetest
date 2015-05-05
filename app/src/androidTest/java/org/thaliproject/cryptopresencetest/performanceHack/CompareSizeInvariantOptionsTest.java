@@ -1,9 +1,8 @@
-package org.thaliproject.cryptopresencetest.app;
+package org.thaliproject.cryptopresencetest.performanceHack;
 
 import org.spongycastle.crypto.Digest;
 import org.spongycastle.crypto.digests.SHA256Digest;
 import org.spongycastle.crypto.generators.HKDFBytesGenerator;
-import org.spongycastle.crypto.macs.HMac;
 import org.spongycastle.crypto.params.HKDFParameters;
 
 import javax.crypto.*;

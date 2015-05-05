@@ -1,4 +1,4 @@
-package org.thaliproject.cryptopresencetest.app;
+package org.thaliproject.cryptopresencetest.performanceHack;
 
 import javax.crypto.KeyAgreement;
 import java.security.*;

@@ -1,4 +1,4 @@
-package org.thaliproject.cryptopresencetest.app;
+package org.thaliproject.cryptopresencetest.performanceHack;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;

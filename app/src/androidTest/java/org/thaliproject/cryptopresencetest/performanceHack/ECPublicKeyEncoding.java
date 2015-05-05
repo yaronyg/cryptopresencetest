@@ -1,4 +1,4 @@
-package org.thaliproject.cryptopresencetest.app;
+package org.thaliproject.cryptopresencetest.performanceHack;
 
 import java.security.*;
 import java.security.interfaces.ECPublicKey;
