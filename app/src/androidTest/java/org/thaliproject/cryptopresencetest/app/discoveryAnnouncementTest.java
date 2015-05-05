@@ -106,7 +106,7 @@ public class DiscoveryAnnouncementTest extends AndroidTestCase {
 
         KeyPair ky = null;
 
-        for(int i = 0; i < 1; ++i) {
+        for(int i = 0; i < 20; ++i) {
             KeyPair keyPair = DiscoveryAnnouncement.createKeyPair();
             if (ky == null) {
                 ky = keyPair;
@@ -130,6 +130,7 @@ public class DiscoveryAnnouncementTest extends AndroidTestCase {
                 DiscoveryAnnouncement
                         .parseDiscoveryAnnouncement(discoveryAnnouncement, kyAddressBook, ky);
 
+        // Correct devY and recognized devX
         assertTrue(Arrays.equals(shouldBeKxIndex, kxIndex));
 
         KeyPair noMatchingKy = DiscoveryAnnouncement.createKeyPair();
@@ -138,6 +139,28 @@ public class DiscoveryAnnouncementTest extends AndroidTestCase {
                 DiscoveryAnnouncement
                 .parseDiscoveryAnnouncement(discoveryAnnouncement, kyAddressBook, noMatchingKy);
 
+        // Wrong devY and recognized devX
+        assertTrue(shouldBeNull == null);
+
+        KeyPair kz = DiscoveryAnnouncement.createKeyPair();
+        Dictionary<ByteBuffer, ECPublicKey> kyNoKxAddressBook = new Hashtable<>();
+        byte[] kzIndex = DiscoveryAnnouncement
+                .generateInsideBeaconKeyId((ECPublicKey) kz.getPublic());
+        kyNoKxAddressBook.put(ByteBuffer.wrap(kzIndex), (ECPublicKey) kz.getPublic());
+
+        shouldBeNull =
+                DiscoveryAnnouncement
+                .parseDiscoveryAnnouncement(discoveryAnnouncement, kyNoKxAddressBook, ky);
+
+        // Correct devY and unrecognized devX
+        assertTrue(shouldBeNull == null);
+
+        shouldBeNull =
+                DiscoveryAnnouncement
+                .parseDiscoveryAnnouncement(discoveryAnnouncement,
+                        kyNoKxAddressBook, noMatchingKy);
+
+        // Wrong devY and unrecognized devX
         assertTrue(shouldBeNull == null);
     }
 
