@@ -38,7 +38,7 @@ public class HashAndHmacTests extends BaseCryptoTest {
     }
 
     public void testCheckHashesAgainstAddressBook() throws Exception {
-        final int keysInAddressBook = 1000;
+        final int keysInAddressBook = 150;
         final int numberOfHashesToCheck = 20;
         PerfTest.runAndLogTest("Check " + numberOfHashesToCheck + " hashes using " +
                 macAlgorithm + " against " +

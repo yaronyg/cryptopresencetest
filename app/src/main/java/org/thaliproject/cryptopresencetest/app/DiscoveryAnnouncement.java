@@ -1,6 +1,7 @@
 package org.thaliproject.cryptopresencetest.app;
 
 import android.support.annotation.NonNull;
+import android.util.Log;
 import org.spongycastle.crypto.Digest;
 import org.spongycastle.crypto.digests.SHA256Digest;
 import org.spongycastle.crypto.generators.HKDFBytesGenerator;
@@ -29,13 +30,15 @@ public class DiscoveryAnnouncement {
     public static final Digest bouncyDigest = new SHA256Digest();
     public static final String macName = "SHA-256";
     public static final String hmacName = "HmacSHA256";
-    public static final int hashSizeInBytes = 16; // We use SHA-256 but truncate
     public static final int ivSizeInBytes = 16; // AES 128 IV size
     public static final int aesKeySize = ivSizeInBytes;
-    public static final int beaconHmacKeySize = 32;
     public static final String aesInstanceString = "AES/GCM/NoPadding";
     public static final int x509KeyEncodingInBytes = 88;
-    public static final int beaconSize = 48;
+    public static final int beaconHmacKeySize = 32;
+    public static final int beaconHmacSizeInBytes = 16;
+    public static final int encryptedKeyIdSizeInBytes = 32;
+    public static final int keyIdHashSizeInBytes = 16;
+    public static final int expirationSizeInBytes = 8;
     public static final long minimumMillisIntoTheFuture = 60 * 1000;
     public static final long maximumMillisIntoTheFuture = 24 * 60 * 60 * 1000;
 
@@ -57,44 +60,33 @@ public class DiscoveryAnnouncement {
     }
 
     @NonNull
-    public static byte[] createIV() {
-        final byte[] ivBytes = new byte[ivSizeInBytes];
-        SecureRandom secureRandom = new SecureRandom();
-        secureRandom.nextBytes(ivBytes);
-        return ivBytes;
-    }
-
-    @NonNull
     public static byte[] generateDiscoveryAnnouncement(
             @NonNull Set<ECPublicKey> listOfReceivingDevicesPublicKeys,
-            @NonNull KeyPair kx, @NonNull byte[] iv, @NonNull KeyPair ke,
+            @NonNull KeyPair kx, @NonNull KeyPair ke,
             long expiration) throws InvalidAlgorithmParameterException,
             NoSuchAlgorithmException, NoSuchProviderException, IllegalBlockSizeException,
             BadPaddingException, NoSuchPaddingException, InvalidKeyException {
-        final int lengthOfBeacon = 48;
         validateKeyPair(kx, "kx");
         validateKeyPair(ke, "ke");
 
         ByteBuffer discoveryAnnouncementByteBuffer =
-                ByteBuffer.allocate(Long.SIZE + ke.getPublic().getEncoded().length +
-                    iv.length + (lengthOfBeacon * listOfReceivingDevicesPublicKeys.size()));
+                ByteBuffer.wrap(new byte[x509KeyEncodingInBytes + expirationSizeInBytes +
+                        ((encryptedKeyIdSizeInBytes + beaconHmacSizeInBytes)
+                                * listOfReceivingDevicesPublicKeys.size())]);
 
-        discoveryAnnouncementByteBuffer.putLong(expiration);
         discoveryAnnouncementByteBuffer.put(ke.getPublic().getEncoded());
-        discoveryAnnouncementByteBuffer.put(iv);
+        discoveryAnnouncementByteBuffer.putLong(expiration);
 
-        byte[] insideBeaconKeyId = generateInsideBeaconKeyId((ECPublicKey)kx.getPublic());
+        byte[] unencryptedKeyId =
+                generateUnencryptedKeyId((ECPublicKey) kx.getPublic());
 
         for(ECPublicKey pubKy : listOfReceivingDevicesPublicKeys) {
             validatePublicKey(pubKy, "pubKy");
             discoveryAnnouncementByteBuffer.put(
-                    generateBeacon(pubKy, kx, ke, iv, expiration, insideBeaconKeyId));
+                    generateBeacon(pubKy, kx, ke, expiration, unencryptedKeyId));
         }
 
-        byte[] discoveryAnnouncement = new byte[discoveryAnnouncementByteBuffer.position()];
-        discoveryAnnouncementByteBuffer.rewind();
-        discoveryAnnouncementByteBuffer.get(discoveryAnnouncement);
-        return discoveryAnnouncement;
+        return discoveryAnnouncementByteBuffer.array();
     }
 
     @NonNull
@@ -105,7 +97,7 @@ public class DiscoveryAnnouncement {
             NoSuchAlgorithmException, NoSuchProviderException, InvalidKeyException,
             BadPaddingException, NoSuchPaddingException, IllegalBlockSizeException {
         return generateDiscoveryAnnouncement(listOfReceivingDevicesPublicKeys,
-                kx, createIV(), createKeyPair(),
+                kx, createKeyPair(),
                 createExpiration(millisecondsInTheFutureToExpire));
     }
 
@@ -113,22 +105,24 @@ public class DiscoveryAnnouncement {
             @NonNull byte[] discoveryAnnouncement,
             @NonNull Dictionary<ByteBuffer, ECPublicKey> addressBook,
             @NonNull KeyPair ky) {
-        ByteBuffer byteBuffer = ByteBuffer.wrap(discoveryAnnouncement);
+        validateKeyPair(ky, "ky");
 
-        final long expiration = byteBuffer.getLong();
-        validateExpiration(expiration);
+        ByteBuffer byteBuffer = ByteBuffer.wrap(discoveryAnnouncement);
 
         final byte[] x509EncodedKey = new byte[x509KeyEncodingInBytes];
         byteBuffer.get(x509EncodedKey);
         ECPublicKey pubKe = transformX509EncodedKey(x509EncodedKey);
 
-        final byte[] iv = new byte[ivSizeInBytes];
-        byteBuffer.get(iv);
+        final long expiration = byteBuffer.getLong();
+        validateExpiration(expiration);
 
-        byte[] rawBeacon = new byte[beaconSize];
+        byte[] encryptedKeyId = new byte[encryptedKeyIdSizeInBytes];
+        byte[] beaconHmac = new byte[beaconHmacSizeInBytes];
         while(byteBuffer.hasRemaining()) {
-            byteBuffer.get(rawBeacon);
-            byte[] validatedCallerId = parseBeacon(rawBeacon, addressBook, ky, iv, pubKe,
+            byteBuffer.get(encryptedKeyId);
+            byteBuffer.get(beaconHmac);
+            byte[] validatedCallerId =
+                    parseBeacon(encryptedKeyId, beaconHmac, addressBook, ky, pubKe,
                     expiration);
             if (validatedCallerId != null) {
                 return validatedCallerId;
@@ -137,48 +131,36 @@ public class DiscoveryAnnouncement {
         return null;
     }
 
-    protected static byte[] parseBeacon(@NonNull byte[] rawBeacon,
-                                        @NonNull Dictionary<ByteBuffer, ECPublicKey> addressBook,
-                                        @NonNull KeyPair ky,
-                                        @NonNull byte[] iv,
-                                        @NonNull ECPublicKey pubKe,
-                                        long expiration) {
+    protected static byte[] parseBeacon(
+            @NonNull byte[] encryptedKeyId,
+            @NonNull byte[] beaconHmac,
+            @NonNull Dictionary<ByteBuffer, ECPublicKey> addressBook,
+            @NonNull KeyPair ky,
+            @NonNull ECPublicKey pubKe,
+            long expiration) {
         try {
-            byte[] hkey = generateECDHWithHKDF((ECPrivateKey) ky.getPrivate(),
-                    pubKe, iv, aesKeySize);
-            SecretKeySpec hkeySecretKeySpec = new SecretKeySpec(hkey, "AES");
-            Cipher cipher = Cipher.getInstance(aesInstanceString);
+            byte[] salt = generateSalt(expiration);
 
-            cipher.init(Cipher.DECRYPT_MODE, hkeySecretKeySpec,
-                    new IvParameterSpec(iv));
+            byte[] unencryptedKeyId = decryptKeyId((ECPrivateKey) ky.getPrivate(),
+                    pubKe, salt, encryptedKeyId);
 
-            byte[] unencryptedBeacon = cipher.doFinal(rawBeacon);
-
-            ByteBuffer unencryptedBeaconByteBuffer =
-                    ByteBuffer.wrap(unencryptedBeacon);
-
-            byte[] insideBeaconKeyId = new byte[hashSizeInBytes];
-            unencryptedBeaconByteBuffer.get(insideBeaconKeyId);
-            ECPublicKey pubKx = addressBook.get(ByteBuffer.wrap(insideBeaconKeyId));
+            ECPublicKey pubKx = addressBook.get(ByteBuffer.wrap(unencryptedKeyId));
 
             if (pubKx == null) {
                 return null;
             }
 
-            byte[] receivedInsideBeaconHmac = new byte[hashSizeInBytes];
-            unencryptedBeaconByteBuffer.get(receivedInsideBeaconHmac);
-
-            byte[] calculatedInsideBeaconHmac =
+            byte[] calculatedBeaconHmac =
                     generateInsideBeaconHmac((ECPrivateKey) ky.getPrivate(),
-                            pubKx, iv, expiration);
+                            pubKx, salt);
 
-            if (Arrays.equals(receivedInsideBeaconHmac, calculatedInsideBeaconHmac)) {
-                return insideBeaconKeyId;
+            if (Arrays.equals(beaconHmac, calculatedBeaconHmac)) {
+                return unencryptedKeyId;
             }
 
             return null;
         } catch(AEADBadTagException e) {
-            return null;
+            return null; // Hash on encrypted value failed so this encrypted key id wasn't for us
         } catch (NoSuchAlgorithmException | NoSuchProviderException |
                 IllegalBlockSizeException | BadPaddingException |
                 InvalidAlgorithmParameterException |
@@ -215,83 +197,44 @@ public class DiscoveryAnnouncement {
     @NonNull
     protected static byte[] generateBeacon(
             @NonNull ECPublicKey pubKy, @NonNull KeyPair kx, @NonNull KeyPair ke,
-            @NonNull byte[] iv, long expiration, @NonNull byte[] insideBeaconKeyId)
+            long expiration, @NonNull byte[] unencryptedKeyId)
             throws NoSuchAlgorithmException, InvalidKeyException,
             NoSuchProviderException, InvalidAlgorithmParameterException,
             NoSuchPaddingException, BadPaddingException, IllegalBlockSizeException {
+        byte[] salt = generateSalt(expiration);
 
-        byte[] insideBeaconKeyIdInsideBeaconHmac =
-                new byte[hashSizeInBytes * 2];
+        byte[] encryptedKeyId = encryptKeyId((ECPrivateKey) ke.getPrivate(), pubKy, salt,
+                unencryptedKeyId);
 
-        // Creates InsideBeaconKeyId
-        System.arraycopy(insideBeaconKeyId,
-                0,
-                insideBeaconKeyIdInsideBeaconHmac,
-                0,
-                hashSizeInBytes);
-
-        // Creates InsideBeaconHmac
         byte[] insideBeaconHmac =
                 generateInsideBeaconHmac((ECPrivateKey)kx.getPrivate(),
-                        pubKy, iv, expiration);
+                        pubKy, salt);
 
-        System.arraycopy(insideBeaconHmac,
-                0,
-                insideBeaconKeyIdInsideBeaconHmac,
-                hashSizeInBytes,
-                hashSizeInBytes);
-
-        // Creates actual beacon value
-        byte[] hkey = generateECDHWithHKDF((ECPrivateKey) ke.getPrivate(),
-                pubKy, iv, aesKeySize);
-
-        SecretKeySpec hkeySecretKeySpec = new SecretKeySpec(hkey, "AES");
-        Cipher cipher = Cipher.getInstance(aesInstanceString);
-
-        cipher.init(Cipher.ENCRYPT_MODE,
-                hkeySecretKeySpec,
-                new GCMParameterSpec(16 * Byte.SIZE, iv));
-
-        return cipher.doFinal(insideBeaconKeyIdInsideBeaconHmac);
+        ByteBuffer beaconByteBuffer =
+                ByteBuffer.wrap(new byte[encryptedKeyIdSizeInBytes + beaconHmacSizeInBytes]);
+        return
+                beaconByteBuffer
+                        .put(encryptedKeyId)
+                        .put(insideBeaconHmac)
+                        .array();
     }
 
     @NonNull
-    protected static byte[] generateInsideBeaconKeyId(@NonNull ECPublicKey publicKey)
+    protected static byte[] generateUnencryptedKeyId(@NonNull ECPublicKey publicKey)
             throws NoSuchAlgorithmException {
         MessageDigest messageDigest =
                 MessageDigest.getInstance(DiscoveryAnnouncement.macName);
         messageDigest.update(publicKey.getEncoded());
         byte[] fullSizeKeyHash = messageDigest.digest();
-        byte[] keyIndex = new byte[DiscoveryAnnouncement.hashSizeInBytes];
+        byte[] keyIndex = new byte[keyIdHashSizeInBytes];
         System.arraycopy(fullSizeKeyHash, 0, keyIndex, 0, keyIndex.length);
         return keyIndex;
-    }
-
-
-    @NonNull
-    private static byte[] generateInsideBeaconHmac(@NonNull ECPrivateKey privateKey,
-                                                   @NonNull ECPublicKey publicKey,
-                                                   @NonNull byte[] iv,
-                                                   long expiration)
-            throws NoSuchAlgorithmException, InvalidKeyException, NoSuchProviderException {
-        ByteBuffer ivExpirationBuffer = ByteBuffer.allocate(hashSizeInBytes * 2);
-        ivExpirationBuffer.put(iv);
-        ivExpirationBuffer.putLong(expiration);
-
-        byte[] hkxy = generateECDHWithHKDF(privateKey, publicKey, iv, beaconHmacKeySize);
-        Mac hmac = Mac.getInstance(hmacName);
-        SecretKeySpec hkxySecretKeySpec = new SecretKeySpec(hkxy, "RAW");
-        hmac.init(hkxySecretKeySpec);
-        byte[] hmacBuffer = new byte[ivExpirationBuffer.position()];
-        ivExpirationBuffer.rewind();
-        ivExpirationBuffer.get(hmacBuffer);
-        return Arrays.copyOf(hmac.doFinal(hmacBuffer), hashSizeInBytes);
     }
 
     @NonNull
     protected static byte[] generateECDHWithHKDF(@NonNull ECPrivateKey privateKey,
                                                  @NonNull ECPublicKey publicKey,
-                                                 @NonNull byte[] iv,
+                                                 @NonNull byte[] salt,
                                                  int bytesToGenerate)
             throws NoSuchProviderException, NoSuchAlgorithmException, InvalidKeyException {
         KeyAgreement keyAgreement = KeyAgreement.getInstance(keyGeneratorType, cryptoEngine);
@@ -300,7 +243,7 @@ public class DiscoveryAnnouncement {
         byte[] nonUniformSecret = keyAgreement.generateSecret();
 
         HKDFBytesGenerator hkdfBytesGenerator = new HKDFBytesGenerator(bouncyDigest);
-        HKDFParameters hkdfParameters = new HKDFParameters(nonUniformSecret, iv, null);
+        HKDFParameters hkdfParameters = new HKDFParameters(nonUniformSecret, salt, null);
         hkdfBytesGenerator.init(hkdfParameters);
         byte[] uniformSecret = new byte[bytesToGenerate];
         hkdfBytesGenerator.generateBytes(uniformSecret, 0, uniformSecret.length);
@@ -361,5 +304,70 @@ public class DiscoveryAnnouncement {
                 referenceSpec.getCurve().equals(testSpec.getCurve()) &&
                 referenceSpec.getGenerator().equals(testSpec.getGenerator()) &&
                 referenceSpec.getOrder().equals(testSpec.getOrder());
+    }
+
+    @NonNull
+    private static byte[] generateInsideBeaconHmac(@NonNull ECPrivateKey privateKey,
+                                                   @NonNull ECPublicKey publicKey,
+                                                   byte[] salt)
+            throws NoSuchAlgorithmException, InvalidKeyException, NoSuchProviderException {
+        byte[] hkxy =
+                generateECDHWithHKDF(privateKey, publicKey, salt,
+                        beaconHmacKeySize);
+        Mac hmac = Mac.getInstance(hmacName);
+        SecretKeySpec hkxySecretKeySpec = new SecretKeySpec(hkxy, "RAW");
+        hmac.init(hkxySecretKeySpec);
+        return Arrays.copyOf(hmac.doFinal(salt),
+                beaconHmacSizeInBytes);
+    }
+
+    private static byte[] encryptKeyId(@NonNull ECPrivateKey privateKey,
+                                       @NonNull ECPublicKey publicKey,
+                                       @NonNull byte[] salt,
+                                       @NonNull byte[] unencryptedKeyId)
+            throws NoSuchPaddingException, InvalidAlgorithmParameterException,
+            NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException,
+            NoSuchProviderException, InvalidKeyException {
+        return aesAndKeyId(true, privateKey, publicKey, salt, unencryptedKeyId);
+    }
+
+    private static byte[] decryptKeyId(@NonNull ECPrivateKey privateKey,
+                                       @NonNull ECPublicKey publicKey,
+                                       @NonNull byte[] salt,
+                                       @NonNull byte[] encryptedKeyId)
+            throws NoSuchPaddingException, InvalidAlgorithmParameterException,
+            NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException,
+            NoSuchProviderException, InvalidKeyException {
+        return aesAndKeyId(false, privateKey, publicKey, salt, encryptedKeyId);
+    }
+
+    private static byte[] aesAndKeyId(boolean encrypt, @NonNull ECPrivateKey privateKey,
+                                      @NonNull ECPublicKey publicKey,
+                                      @NonNull byte[] salt,
+                                      @NonNull byte[] cryptoMaterial)
+            throws NoSuchAlgorithmException, InvalidKeyException, NoSuchProviderException,
+            NoSuchPaddingException, InvalidAlgorithmParameterException, BadPaddingException,
+            IllegalBlockSizeException {
+        byte[] iv = new byte[ivSizeInBytes];
+        byte[] hkey = new byte[aesKeySize];
+        ByteBuffer keyingMaterial =
+                ByteBuffer.wrap(
+                        generateECDHWithHKDF(privateKey, publicKey, salt,
+                                ivSizeInBytes + aesKeySize));
+
+        keyingMaterial.get(iv);
+        keyingMaterial.get(hkey);
+
+        SecretKeySpec hkeySecretKeySpec = new SecretKeySpec(hkey, "AES");
+        Cipher cipher = Cipher.getInstance(aesInstanceString);
+
+        cipher.init(encrypt ? Cipher.ENCRYPT_MODE : Cipher.DECRYPT_MODE, hkeySecretKeySpec,
+                encrypt ? new GCMParameterSpec(16 * Byte.SIZE, iv) : new IvParameterSpec(iv));
+
+        return cipher.doFinal(cryptoMaterial);
+    }
+
+    private static byte[] generateSalt(long expiration) {
+        return ByteBuffer.wrap(new byte[expirationSizeInBytes]).putLong(expiration).array();
     }
 }

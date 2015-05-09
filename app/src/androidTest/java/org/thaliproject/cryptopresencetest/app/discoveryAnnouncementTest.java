@@ -92,11 +92,6 @@ public class DiscoveryAnnouncementTest extends AndroidTestCase {
         });
     }
 
-    public void testCreateIv() {
-        byte[] iv = DiscoveryAnnouncement.createIV();
-        assertTrue(iv.length == DiscoveryAnnouncement.ivSizeInBytes);
-    }
-
     public void testGenerateDiscoveryAnnouncement() throws
             InvalidAlgorithmParameterException, NoSuchAlgorithmException,
             NoSuchProviderException, IllegalBlockSizeException, BadPaddingException,
@@ -106,7 +101,8 @@ public class DiscoveryAnnouncementTest extends AndroidTestCase {
 
         KeyPair ky = null;
 
-        for(int i = 0; i < 20; ++i) {
+        int numberOfKeysToDiscover = 20;
+        for(int i = 0; i < numberOfKeysToDiscover; ++i) {
             KeyPair keyPair = DiscoveryAnnouncement.createKeyPair();
             if (ky == null) {
                 ky = keyPair;
@@ -116,7 +112,7 @@ public class DiscoveryAnnouncementTest extends AndroidTestCase {
 
         KeyPair kx = DiscoveryAnnouncement.createKeyPair();
         byte[] kxIndex = DiscoveryAnnouncement
-                .generateInsideBeaconKeyId((ECPublicKey) kx.getPublic());
+                .generateUnencryptedKeyId((ECPublicKey) kx.getPublic());
 
         kyAddressBook.put(ByteBuffer.wrap(kxIndex), (ECPublicKey) kx.getPublic());
 
@@ -125,6 +121,13 @@ public class DiscoveryAnnouncementTest extends AndroidTestCase {
         byte[] discoveryAnnouncement = DiscoveryAnnouncement
                 .generateDiscoveryAnnouncement(kxListOfReceivingDevicesPublicKeys,
                         kx, millisecondsUntilExpiry);
+
+        assertTrue(discoveryAnnouncement.length ==
+                        (DiscoveryAnnouncement.x509KeyEncodingInBytes +
+                                DiscoveryAnnouncement.expirationSizeInBytes +
+                                ((DiscoveryAnnouncement.encryptedKeyIdSizeInBytes +
+                                DiscoveryAnnouncement.beaconHmacSizeInBytes) *
+                                numberOfKeysToDiscover)));
 
         byte[] shouldBeKxIndex =
                 DiscoveryAnnouncement
@@ -145,7 +148,7 @@ public class DiscoveryAnnouncementTest extends AndroidTestCase {
         KeyPair kz = DiscoveryAnnouncement.createKeyPair();
         Dictionary<ByteBuffer, ECPublicKey> kyNoKxAddressBook = new Hashtable<>();
         byte[] kzIndex = DiscoveryAnnouncement
-                .generateInsideBeaconKeyId((ECPublicKey) kz.getPublic());
+                .generateUnencryptedKeyId((ECPublicKey) kz.getPublic());
         kyNoKxAddressBook.put(ByteBuffer.wrap(kzIndex), (ECPublicKey) kz.getPublic());
 
         shouldBeNull =
